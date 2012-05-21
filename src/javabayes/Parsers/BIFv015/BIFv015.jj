@@ -1,0 +1,472 @@
+/*
+ * Definitions for the InterchangeFormat (BIF version 0.15) parser
+ * Author: Fabio Cozman
+ * <fgcozman@cs.cmu.edu><http://www.cs.cmu.edu/~fgcozman/home.html>
+ *
+ * The InterchangeFormat parser is free software; you can
+ * redistribute it and/or modify it under the terms of the GNU General
+ * Public License as published by the Free Software Foundation, provided
+ * that this notice and the name of the author appear in all copies.
+ * If you're using the software, please notify fgcozman@cs.cmu.edu so
+ * that you can receive updates and patches.
+ * The InterchangeFormat parser is distributed "as is", in the
+ * hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
+ * implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ * You should have received a copy of the GNU General Public License
+ * along with the BayesianNetworks package. If not, write to the Free
+ * Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+/* ========================================================== */
+/* Options for Jack (only non-default options)                */
+/* ========================================================== */
+
+options {
+  STATIC = false;
+}
+
+/* ========================================================== */
+/* Java code that is incorporated into the parser             */
+/* ========================================================== */
+
+PARSER_BEGIN(BIFv015)
+
+/* This parser uses the data structures in the JavaBayes core *
+ * engine (package BayesianNetworks); other implementations   *
+ * may use different data structures                          */
+package Parsers.BIFv015;
+
+import InterchangeFormat.*;
+
+import java.util.Vector;
+import java.util.Enumeration;
+
+/* Definition of the Interchange Format class and its         *
+ * variables. The IFBayesNet ifbn contains the *
+ * parsed bayesian network.                                   */
+public class BIFv015 extends InterchangeFormat {
+  IFBayesNet ifbn;
+
+  public IFBayesNet get_ifbn() { return(ifbn); }
+
+  /* Method responsible for globbing undefined text in an input file */
+  void glob_undefined_text() throws ParseException {
+	Token t;
+	while (true) {
+		t = getToken(1);
+		if ((t.kind == 0) ||
+		    (t.kind == NETWORK) ||
+		    (t.kind == VARIABLE) ||
+	            (t.kind == PROBABILITY))
+			break;
+		else
+			getNextToken();
+	  }
+  }
+}
+
+PARSER_END(BIFv015)
+
+/* ========================================================== */
+/* List of tokens                                             */
+/* ========================================================== */
+
+SKIP : /* WHITE SPACE */
+{
+  " "
+| "\t"
+| "\n"
+| "\r"
+| "\f"
+}
+
+SKIP: /* Characters that can be used to separate words are ignored */
+{
+  ","
+}
+
+SPECIAL_TOKEN : /* COMMENTS */
+{
+  <SINGLE_LINE_COMMENT: "//" (~["\n","\r"])* ("\n"|"\r"|"\r\n")>
+| <FORMAL_COMMENT: "/**" (~["*"])* "*" ("*" | (~["*","/"] (~["*"])* "*"))* "/">
+| <MULTI_LINE_COMMENT: "/*" (~["*"])* "*" ("*" | (~["*","/"] (~["*"])* "*"))* "/">
+}
+
+TOKEN :  /* Keywords */
+{
+  < NETWORK: "network" >
+| < VARIABLE: "variable" >
+| < PROBABILITY: "probability" >
+| < PROPERTY: "property" >
+| < VARIABLETYPE: "type" >
+| < DISCRETE: "discrete" >
+| < DEFAULTVALUE: "default" >
+| < TABLEVALUES: "table" >
+}
+
+
+TOKEN : /* Definition of a non-negative number */
+{
+  < NON_NEGATIVE_NUMBER:
+      ["1"-"9"] (["0"-"9"])*
+      | (["0"-"9"])+ "." (["0"-"9"])* (<EXPONENT>)?
+      | "." (["0"-"9"])+ (<EXPONENT>)?
+      | (["0"-"9"])+ (<EXPONENT>)?
+  >
+|
+  < #EXPONENT: ["e","E"] (["+","-"])? (["0"-"9"])+ >
+}
+
+TOKEN : /* Definition of a string */
+{
+  < STRING:
+      "\""
+      (   (~["\"","\\","\n","\r"])
+        | ("\\"
+            ( ["n","t","b","r","f","\\","'","\""]
+            | ["0"-"7"] ( ["0"-"7"] )?
+            | ["0"-"3"] ["0"-"7"] ["0"-"7"]
+            )
+          )
+      )*
+      "\""
+  >
+}
+
+/* ========================================================== */
+/* THE INTERCHANGE FORMAT GRAMMAR STARTS HERE                 */
+/* ========================================================== */
+
+/* Basic parsing function. First looks for a Network Declaration, *
+ * then looks for an arbitrary number of VariableDeclaration or   *
+ * ProbabilityDeclaration non-terminals. The objects are          *
+ * in the vectors ifbn.pvs and ifbn.upfs.                         */
+void CompilationUnit() :
+{
+IFProbabilityVariable pv;
+IFProbabilityFunction upf;
+}
+{
+	{ glob_undefined_text(); }
+  NetworkDeclaration()
+	{ glob_undefined_text(); }
+  ( pv=VariableDeclaration()
+	{ ifbn.add(pv); glob_undefined_text(); }
+  |
+    upf=ProbabilityDeclaration()
+	{ ifbn.add(upf); glob_undefined_text(); }
+  )*
+  <EOF>
+}
+
+/* ========================================================== */
+/* Detect and initialize the network                          */
+/* ========================================================== */
+void NetworkDeclaration() :
+{
+String s;
+Vector properties;
+}
+{
+  <NETWORK> s=getString() properties = NetworkContent()
+	{ ifbn = new IFBayesNet(s, properties); }
+}
+
+/* Fill the network list of properties */
+Vector NetworkContent() :
+{
+Vector properties = new Vector();
+String s;
+}
+{
+  "{" ( s=Property()
+	{ properties.addElement(s); }
+  )* "}"
+	{ return(properties); }
+}
+
+/* ========================================================== */
+/* Detect a variable declaration                              */
+/* ========================================================== */
+IFProbabilityVariable VariableDeclaration() :
+{
+String s;
+IFProbabilityVariable pv;
+}
+{
+  <VARIABLE> s=ProbabilityVariableName() pv=VariableContent(s)
+	{ return(pv); }
+}
+
+/* Fill a variable list of properties */
+IFProbabilityVariable VariableContent(String name) :
+{
+String s;
+String values[] = null;
+Vector properties = new Vector();
+IFProbabilityVariable pv = new IFProbabilityVariable();
+}
+{
+  "{" ( s=Property()
+	{ properties.addElement(s); }
+    | values=VariableDiscrete()  )*  "}"
+	{ pv.set_name(name);
+	  pv.set_properties(properties);
+	  pv.set_values(values);
+	  return(pv); }
+}
+
+/* Fill a variable type discrete */
+String[] VariableDiscrete() :
+{
+String values[] = null;
+}
+{
+  <VARIABLETYPE> <DISCRETE>
+    "[" <NON_NEGATIVE_NUMBER> "]" "{"
+    values=VariableValuesList()
+    "}" ";"
+	{ return(values); }
+}
+
+/* Get the values of a discrete variable */
+String[] VariableValuesList() :
+{
+int i;
+String value;
+String values[] = null;
+Vector v = new Vector();
+Enumeration e;
+}
+{
+    value=ProbabilityVariableValue()
+	{ v.addElement(value); }
+    ( value=ProbabilityVariableValue()
+	{ v.addElement(value); }
+    )*
+	{ values = new String[v.size()];
+	  for (e=v.elements(), i=0; e.hasMoreElements(); i++)
+		values[i] = (String)(e.nextElement());
+	  return(values); }
+}
+
+/* Pick a single word as a probability variable value */
+String ProbabilityVariableValue() :
+{
+String s;
+}
+{
+   s = getString()
+	{ return(s); }
+}
+
+/* ========================================================== */
+/* Detect a probability declaration                           */
+/* ========================================================== */
+IFProbabilityFunction ProbabilityDeclaration() :
+{
+String vs[];
+IFProbabilityFunction upf = new IFProbabilityFunction();
+}
+{
+  <PROBABILITY> ProbabilityVariablesList(upf) ProbabilityContent(upf)
+	{ return(upf); }
+}
+
+/* Parse the list of Probability variables */
+void ProbabilityVariablesList(IFProbabilityFunction upf) :
+{
+int i;
+Enumeration e;
+String variable_name;
+int cond = -1;
+String vs[];
+Vector v_list = new Vector();
+}
+{
+   "("
+   variable_name=ProbabilityVariableName()
+       [ cond=ConditionalMark(v_list) ]
+	{ v_list.addElement(variable_name); }
+   ( variable_name=ProbabilityVariableName()
+       [ cond=ConditionalMark(v_list) ]
+	{ v_list.addElement(variable_name); }
+   )* ")"
+	{ vs = new String[v_list.size()];
+	  for (e=v_list.elements(), i=0; e.hasMoreElements(); i++)
+		vs[i] = (String)(e.nextElement());
+	  upf.set_variables(vs);
+	  if (cond == -1)
+	    cond = 1;
+   	  upf.set_conditional_index(cond); }
+}
+
+/* Find the conditional mark */
+int ConditionalMark(Vector v):
+{
+}
+{
+    "|"
+    { return(v.size()); }
+}
+
+/* Pick a single word as a probability variable name */
+String ProbabilityVariableName() :
+{
+String s;
+}
+{
+   s=getString()
+	{ return(s); }
+}
+
+/* Fill a Probability list of properties */
+void ProbabilityContent(IFProbabilityFunction upf) :
+{
+String s = null;
+Vector properties = new Vector();
+IFProbabilityEntry e = null;
+Vector entries = new Vector();
+Vector defs = new Vector();
+Vector tabs = new Vector();
+double def[] = null;
+double tab[] = null;
+}
+{
+  "{" ( s=Property()
+	{ properties.addElement(s); }
+      |
+      def=ProbabilityDefaultEntry()
+    { defs.addElement(def); }
+      |
+      e=ProbabilityEntry()
+	{ entries.addElement(e); }
+      |
+      tab=ProbabilityTable()
+    { tabs.addElement(tab); }
+      )* "}"
+	{ upf.set_properties(properties);
+	  upf.set_defaults(defs);
+	  upf.set_entries(entries);
+	  upf.set_tables(tabs); }
+}
+
+IFProbabilityEntry ProbabilityEntry() :
+{
+String s[];
+double d[];
+}
+{
+   s=ProbabilityValuesList() d=FloatingPointList() ";"
+	{ return( new IFProbabilityEntry(s, d) ); }
+}
+
+/* Parse the list of Probability values in an entry */
+String[] ProbabilityValuesList() :
+{
+int i;
+Enumeration e;
+String variable_name;
+String vs[];
+Vector v_list = new Vector();
+}
+{
+   "("
+   variable_name=ProbabilityVariableValue()
+	{ v_list.addElement(variable_name); }
+   ( variable_name=ProbabilityVariableValue()
+	{ v_list.addElement(variable_name); }
+   )* ")"
+	{ vs = new String[v_list.size()];
+	  for (e=v_list.elements(), i=0; e.hasMoreElements(); i++)
+		vs[i] = (String)(e.nextElement());
+	  return(vs); }
+}
+
+double[] ProbabilityDefaultEntry() :
+{
+double d[];
+}
+{
+  <DEFAULTVALUE> d=FloatingPointList() ";"
+	{ return(d); }
+}
+
+double[] ProbabilityTable() :
+{
+double d[];
+}
+{
+  <TABLEVALUES> d=FloatingPointList() ";"
+	{ return(d); }
+}
+
+/* ====================================================== */
+/*          Some general purpose non-terminals            */
+/* ====================================================== */
+
+/* Pick a list of non-negative floating numbers */
+double[] FloatingPointList() :
+{
+int i;
+Double d;
+double ds[];
+Vector d_list = new Vector();
+Enumeration e;
+}
+{
+  d=FloatingPointNumber()
+	{ d_list.addElement(d); }
+  ( d=FloatingPointNumber()
+	{ d_list.addElement(d); }
+  )*
+	{ ds = new double[d_list.size()];
+	  for (e=d_list.elements(), i=0; e.hasMoreElements(); i++) {
+		d = (Double)(e.nextElement());
+		ds[i] = d.doubleValue();
+	  }
+	  return(ds); }
+}
+
+/* Pick a non-negative floating number; necessary to allow *
+ * ignored characters and comments to exist in the middle  *
+ * of a FloatingPointList()                                */
+Double FloatingPointNumber() :
+{
+Token t;
+}
+{
+  t=<NON_NEGATIVE_NUMBER>
+	{ return( Double.valueOf(t.image) ); }
+}
+
+/* Property definition */
+String Property() :
+{
+String s;
+}
+{
+  <PROPERTY> s=getString() ";"
+	{ return(s); }
+}
+
+/* String */
+String getString() :
+{
+Token t;
+}
+{
+    t = <STRING>
+        { return( (t.image).substring(1,t.image.length()-1) ); }
+}
+
+
+
+
+
+
+
+
+
+

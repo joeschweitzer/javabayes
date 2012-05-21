@@ -1,0 +1,513 @@
+/**
+ * Definitions for the XML BIF 0.3 (XML-based BayesNet Interchange Format version 0.3)
+ * parser.
+ * Based on the XML BIF 0.2 with suggestions provided by members of the Decision
+ * Sciences Laboratory at University of Pittsburgh.
+ * Author: Fabio Cozman
+ * <fgcozman@cs.cmu.edu><http://www.cs.cmu.edu/~fgcozman/home.html>
+ *
+ * This parser is free software; you can
+ * redistribute it and/or modify it under the terms of the GNU General
+ * Public License as published by the Free Software Foundation, provided
+ * that this notice and the name of the author appear in all copies.
+ * If you're using the software, please notify fgcozman@cs.cmu.edu so
+ * that you can receive updates and patches.
+ * This parser is distributed "as is", in the
+ * hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
+ * implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ * You should have received a copy of the GNU General Public License
+ * along with the BayesianNetworks package. If not, write to the Free
+ * Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+/*
+ * Options for JavaCC (only non-default options).
+ */
+
+options {
+  STATIC = false;
+  JAVA_UNICODE_ESCAPE = true;
+}
+
+/*
+ * Java code that is incorporated into the parser.
+ */
+
+PARSER_BEGIN(XMLBIFv03)
+
+package Parsers.XMLBIFv03;
+
+import InterchangeFormat.*;
+
+import java.util.Vector;
+import java.util.Enumeration;
+
+/*
+ * Definition of the Interchange Format class and its
+ * variables. The IFBayesNet ifbn contains the
+ * parsed Bayesian network.
+ */
+
+public class XMLBIFv03 extends InterchangeFormat {
+  IFBayesNet ifbn;
+
+  static final int NATURE_DEFINE = 1;
+  static final int DECISION_DEFINE = 2;
+  static final int UTILITY_DEFINE = 3;
+
+  public IFBayesNet get_ifbn() { return(ifbn); }
+
+  public void invert_probability_tables() {
+       ifbn.invert_probability_tables();
+  }
+
+  String pcdata() throws ParseException {
+      StringBuffer p = new StringBuffer("");
+      Token t;
+      while (true) {
+		t = getToken(1);
+		if ((t.kind == 0) || (t.kind == SOT) || (t.kind == CT) || (t.kind == EOT) ) break;
+	    else { p.append(t.image); getNextToken(); }
+      }
+      return(p.toString());
+  }
+
+  void glob_heading() throws ParseException {
+      Token t;
+      while (true) {
+		t = getToken(1);
+		if (t.kind == 0) break;
+		else {
+		    if (t.kind == SOT) {
+		        getNextToken(); t = getToken(1);
+		        if (t.kind == BIF) {
+		            getNextToken(); break;
+		        }
+		        else { getNextToken(); }
+		    }
+		    else { getNextToken(); }
+		}
+		getNextToken();
+	  }
+  }
+}
+
+PARSER_END(XMLBIFv03)
+
+/*
+ * List of tokens.
+ */
+
+SKIP : /* WHITE SPACE */
+{
+  < ( " " | "\t" | "\n" | "\r" | "\f" )+ >
+}
+
+SPECIAL_TOKEN : /* COMMENTS and XML DECLARATIONS */
+{
+  < "<!" (~[">"])* ">">
+}
+
+TOKEN: /* Open tags */
+{
+    < SOT: "<" >
+|   < EOT: "</" >
+}
+
+TOKEN: /* Close tags */
+{
+    < CT: ">" >
+}
+
+TOKEN [IGNORE_CASE] :  /* Opening tag */
+{
+  < OPENTAG: "<?xml" (~[">"])* ">" >
+}
+
+TOKEN: /* Equal sign */
+{
+    < EQUAL: "=" >
+}
+
+TOKEN [IGNORE_CASE] :  /* Keywords */
+{
+  < BIF: "BIF" >
+| < VERSION: "version" >
+| < FOR: "FOR" >
+| < GIVEN: "GIVEN" >
+| < NAME: "NAME" >
+| < NETWORK: "NETWORK">
+| < DEFINITION: "DEFINITION" >
+| < PROPERTY: "PROPERTY" >
+| < TABLE: "TABLE" >
+| < TYPE: "TYPE" >
+| < OUTCOME: "OUTCOME" >
+| < VARIABLE: "VARIABLE" >
+}
+
+TOKEN:
+{
+  < NATURE: "\"nature\"" >
+| < DECISION: "\"decision\"" >
+| < UTILITY: "\"utility\"" >
+}
+
+TOKEN : /* Definition of a non-negative number */
+{
+  < NON_NEGATIVE_NUMBER:
+      ["1"-"9"] (["0"-"9"])*
+      | (["0"-"9"])+ "." (["0"-"9"])* (<EXPONENT>)?
+      | "." (["0"-"9"])+ (<EXPONENT>)?
+      | (["0"-"9"])+ (<EXPONENT>)?
+  >
+|
+  < #EXPONENT: ["e","E"] (["+","-"])? (["0"-"9"])+ >
+}
+
+TOKEN :
+{
+  < IDENTIFIER: <LETTER> (<LETTER>|<DIGIT>)* >
+|
+  < #LETTER:
+      [
+       "\u0024",
+       "\u0041"-"\u005a",
+       "\u005f",
+       "\u0061"-"\u007a",
+       "\u00c0"-"\u00d6",
+       "\u00d8"-"\u00f6",
+       "\u00f8"-"\u00ff",
+       "\u0100"-"\u1fff",
+       "\u3040"-"\u318f",
+       "\u3300"-"\u337f",
+       "\u3400"-"\u3d2d",
+       "\u4e00"-"\u9fff",
+       "\uf900"-"\ufaff"
+      ]
+  >
+|
+  < #DIGIT:
+      [
+       "\u0030"-"\u0039",
+       "\u0660"-"\u0669",
+       "\u06f0"-"\u06f9",
+       "\u0966"-"\u096f",
+       "\u09e6"-"\u09ef",
+       "\u0a66"-"\u0a6f",
+       "\u0ae6"-"\u0aef",
+       "\u0b66"-"\u0b6f",
+       "\u0be7"-"\u0bef",
+       "\u0c66"-"\u0c6f",
+       "\u0ce6"-"\u0cef",
+       "\u0d66"-"\u0d6f",
+       "\u0e50"-"\u0e59",
+       "\u0ed0"-"\u0ed9",
+       "\u1040"-"\u1049"
+      ]
+  >
+}
+
+TOKEN: /* Ordinary data in strings; token used to consume strings */
+{
+	<PCDATA_CHARACTER : (~["<"]) >
+}
+
+TOKEN: /* Ordinary data in attributes */
+{
+    <ATTRIBUTE_STRING : "\"" (~["\""])+ "\"" >
+}
+
+/*
+ * THE INTERCHANGE FORMAT GRAMMAR STARTS HERE.
+ */
+
+/*
+ * Basic parsing function. First looks for a Network Declaration,
+ * then looks for an arbitrary number of VariableDeclaration or
+ * ProbabilityDeclaration non-terminals. The objects are
+ * in the vectors ifbn.pvs and ifbn.upfs.
+ */
+void CompilationUnit() :
+{
+IFProbabilityVariable pv;
+IFProbabilityFunction upf;
+}
+{
+  OpenTag()
+
+  { glob_heading(); }
+
+  NetworkDeclaration()
+  ( <SOT>
+    ( pv=VariableDeclaration() { ifbn.add(pv); }
+    | upf=ProbabilityDeclaration() { ifbn.add(upf); } ) )*
+  <EOT> <NETWORK> <CT>
+  ( ( <EOT> <BIF> <CT> ) | <EOF> )
+}
+
+void OpenTag() :
+{
+}
+{
+  <OPENTAG>
+}
+
+/*
+ * Detect and initialize the network.
+ */
+void NetworkDeclaration() :
+{
+String s, ss;
+Vector properties = new Vector();
+double version;
+}
+{
+  version=VersionDeclaration() { pcdata(); } <CT>
+  <SOT> <NETWORK> <CT>
+  <SOT> <NAME> s=getIdentifier() <EOT> <NAME> <CT>
+  ( LOOKAHEAD(2)
+  ss=Property() { properties.addElement(ss); } )*
+	{ ifbn = new IFBayesNet(s, properties); }
+}
+
+/*
+ * Get the format version.
+ */
+double VersionDeclaration() :
+{
+Token t;
+double version = 0;
+}
+{
+   <VERSION> <EQUAL> t=<ATTRIBUTE_STRING>
+   { version = (Double.valueOf( (t.image).substring(1,t.image.length()-1) )).doubleValue();
+     return(version);  }
+}
+
+/*
+ * Detect a variable declaration.
+ */
+IFProbabilityVariable VariableDeclaration() :
+{
+String s;
+IFProbabilityVariable pv;
+int type = NATURE_DEFINE;
+}
+{
+  <VARIABLE> [ type=TypeDeclaration() ] <CT>
+  s=ProbabilityVariableName() pv=VariableContent(s)
+  <EOT> <VARIABLE> <CT>
+	{ return(pv); }
+}
+
+String ProbabilityVariableName() :
+{
+String s;
+}
+{
+   <SOT> <NAME> s=getIdentifier() <EOT> <NAME> <CT>
+	{ return(s); }
+}
+
+int TypeDeclaration() :
+{
+int type;
+}
+{
+    <TYPE> <EQUAL> type=ProbabilityVariableType()
+    { return(type); }
+}
+
+int ProbabilityVariableType() :
+{
+}
+{
+    <NATURE> { return(NATURE_DEFINE); }
+  | <DECISION> { return(DECISION_DEFINE); }
+  | <UTILITY>  { return(UTILITY_DEFINE); }
+}
+
+IFProbabilityVariable VariableContent(String name) :
+{
+int i;
+String s, v, svalues[];
+Vector properties = new Vector();
+Vector values = new Vector();
+Enumeration e;
+IFProbabilityVariable pv = new IFProbabilityVariable();
+}
+{
+    ( LOOKAHEAD(2)
+    s=Property() { properties.addElement(s); }
+    |
+    v=VariableOutcome() { values.addElement(v); } )*
+	{ pv.set_name(name);
+	  pv.set_properties(properties);
+	  svalues = new String[ values.size() ];
+	  for (e = values.elements(), i = 0; e.hasMoreElements(); i++)
+	    svalues[i] = (String)(e.nextElement());
+	  pv.set_values(svalues);
+	  return(pv); }
+}
+
+String VariableOutcome() :
+{
+String s;
+}
+{
+    <SOT> <OUTCOME> s=getIdentifier() <EOT> <OUTCOME> <CT>
+        { return(s); }
+}
+
+/*
+ * Detect a probability declaration.
+ */
+IFProbabilityFunction ProbabilityDeclaration() :
+{
+String vs[];
+IFProbabilityFunction upf = new IFProbabilityFunction();
+}
+{
+  <DEFINITION> <CT> ProbabilityContent(upf) <EOT> <DEFINITION> <CT>
+	{ return(upf); }
+}
+
+void ProbabilityContent(IFProbabilityFunction upf) :
+{
+int i, j;
+double def[] = null;
+double tab[] = null;
+String s, vs[];
+IFProbabilityEntry entry = null;
+Enumeration e;
+
+Vector fors = new Vector();
+Vector givens = new Vector();
+Vector properties = new Vector();
+Vector entries = new Vector();
+Vector defaults = new Vector();
+Vector tables = new Vector();
+}
+{
+  ( <SOT>
+  ( s=ProbabilityFor() { fors.addElement(s); }
+  | s=ProbabilityGiven() { givens.addElement(s); }
+  | s=Property() { properties.addElement(s); }
+  | tab=ProbabilityTable() { tables.addElement(tab); } ) )*
+	{ upf.set_properties(properties);
+	  upf.set_defaults(defaults);
+	  upf.set_entries(entries);
+	  upf.set_tables(tables);
+	  upf.set_conditional_index(fors.size());
+	  vs = new String[ fors.size() + givens.size() ];
+      for (e = fors.elements(), i = 0; e.hasMoreElements(); i++)
+        vs[i] = (String)(e.nextElement());
+      for (e = givens.elements(), j = i; e.hasMoreElements(); j++)
+        vs[j] = (String)(e.nextElement());
+	  upf.set_variables(vs);
+	}
+}
+
+String ProbabilityFor() :
+{
+String s;
+}
+{
+    <FOR> s=getIdentifier() <EOT> <FOR> <CT>
+        { return(s); }
+}
+
+String ProbabilityGiven() :
+{
+String s;
+}
+{
+    <GIVEN> s=getIdentifier() <EOT> <GIVEN> <CT>
+        { return(s); }
+}
+
+double[] ProbabilityTable() :
+{
+double d[];
+}
+{
+  <TABLE> <CT> d=FloatingPointList() <EOT> <TABLE> <CT>
+	{ return(d); }
+}
+
+/*
+ * Some general purpose non-terminals.
+ */
+
+/*
+ * Pick a list of non-negative floating numbers.
+ */
+double[] FloatingPointList() :
+{
+int i;
+Double d;
+double ds[];
+Vector d_list = new Vector();
+Enumeration e;
+}
+{
+  d=FloatingPointNumber()
+	{ d_list.addElement(d); }
+  ( d=FloatingPointNumber()
+	{ d_list.addElement(d); }
+  )*
+	{ ds = new double[d_list.size()];
+	  for (e=d_list.elements(), i=0; e.hasMoreElements(); i++) {
+		d = (Double)(e.nextElement());
+		ds[i] = d.doubleValue();
+	  }
+	  return(ds); }
+}
+
+/*
+ * Pick a non-negative floating number; necessary to allow
+ * ignored characters and comments to exist in the middle
+ * of a FloatingPointList().
+ */
+Double FloatingPointNumber() :
+{
+Token t;
+}
+{
+  t=<NON_NEGATIVE_NUMBER>
+	{ return( Double.valueOf(t.image) ); }
+}
+
+/*
+ * Property definition.
+ */
+String Property() :
+{
+String s;
+}
+{
+  <SOT> <PROPERTY> s=getString() <EOT> <PROPERTY> <CT>
+	{ return(s); }
+}
+
+/*
+ * Identifier.
+ */
+String getIdentifier() :
+{
+Token t;
+}
+{
+    <CT> t=<IDENTIFIER> { return(t.image); }
+}
+
+/*
+ * String.
+ */
+String getString() :
+{
+}
+{
+    <CT> { return( pcdata() ); }
+}
